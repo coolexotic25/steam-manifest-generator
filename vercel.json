@@ -3,6 +3,9 @@
   "outputDirectory": ".next",
   "installCommand": "npm install",
   "framework": "nextjs",
+  "protection": {
+    "enabled": false
+  },
   "env": {
     "DATABASE_URL": "@database_url",
     "DISCORD_TOKEN": "@discord_token",
