@@ -6,6 +6,10 @@
   "env": {
     "DATABASE_URL": "@database_url",
     "DISCORD_TOKEN": "@discord_token",
-    "STEAM_API_KEY": "@steam_api_key"
+    "STEAM_API_KEY": "@steam_api_key",
+    "NEXT_PUBLIC_SUPABASE_URL": "@supabase_url",
+    "SUPABASE_URL": "@supabase_url",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@supabase_anon_key",
+    "SUPABASE_ANON_KEY": "@supabase_anon_key"
   }
 }
