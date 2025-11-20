@@ -1,0 +1,8 @@
+{
+  "name": "Steam Manifest Generator Bot",
+  "description": "A Discord bot that generates Steam app manifests and Lua scripts based on Steam App IDs",
+  "keywords": ["discord", "bot", "steam", "manifest", "lua", "generator"],
+  "repository": "https://github.com/yourusername/steam-manifest-generator-bot",
+  "logo": "https://i.imgur.com/yourlogo.png",
+  "website": "https://yourwebsite.com"
+}
