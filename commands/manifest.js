@@ -156,8 +156,8 @@ module.exports = {
         
         const { manifestJson, luaScript } = await generateFilesLocally(appData, interaction);
 
-        // Create embed with file information
-        const localEmbed = new EmbedBuilder()
+        // Create main embed with download information
+        const mainEmbed = new EmbedBuilder()
           .setColor('#00FF00')
           .setTitle(`🎮 Files Generated for ${appData.name}`)
           .setURL(`https://store.steampowered.com/app/${appId}`)
@@ -165,13 +165,24 @@ module.exports = {
           .setThumbnail(appData.headerImage || null)
           .addFields(
             { name: '📋 App Information', value: `**App ID:** ${appId}\n**Developer:** ${appData.developer}\n**Publisher:** ${appData.publisher}\n**Release Date:** ${appData.releaseDate}\n**Genres:** ${appData.genres.join(', ') || 'N/A'}`, inline: false },
-            { name: '📁 Generated Files', value: `✅ **${appData.appId}_manifest.json** - Steam manifest file\n✅ **${appData.appId}_script.lua** - Lua script file\n\nBoth files are Steamtools compatible and ready to use!`, inline: false }
+            { name: '📁 Generated Files', value: `✅ **${appData.appId}_manifest.json** - Steam manifest file\n✅ **${appData.appId}_script.lua** - Lua script file\n\nBoth files are Steamtools compatible and ready to use!\n\n**Download Options:**\n📎 Direct attachments (below)\n🔗 Copy & paste from Discord`, inline: false }
           )
           .setTimestamp()
           .setFooter({ 
-            text: 'Steam Manifest Generator Bot • Local generation',
+            text: 'Steam Manifest Generator Bot • Files attached below',
             iconURL: interaction.client.user.displayAvatarURL()
           });
+
+          // Create action buttons
+          const actionButtons = {
+            type: 1,
+            components: [{
+              type: 2,
+              style: 5, // Link button
+              label: '🛒 View on Steam',
+              url: `https://store.steampowered.com/app/${appId}`
+            }]
+          };
 
         // Send the embed with file attachments
         const manifestBuffer = Buffer.from(manifestJson, 'utf8');
