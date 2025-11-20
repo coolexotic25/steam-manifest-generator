@@ -1,26 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+
+// Import fileStorage from simple-generate route
+let fileStorage: Map<string, any> | null = null;
+
+async function getFileStorage() {
+  if (!fileStorage) {
+    try {
+      const module = await import('../simple-generate/route');
+      fileStorage = module.fileStorage;
+    } catch (error) {
+      console.log('⚠️ Could not import file storage:', error.message);
+      fileStorage = new Map();
+    }
+  }
+  return fileStorage;
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { accessKey: string } }
 ) {
   try {
-    const { accessKey } = params;
+    console.log(`🔍 Download request for key: ${params.accessKey}`);
+    
+    const accessKey = params.accessKey;
 
-    // Find the file record
-    const steamFile = await db.steamFile.findUnique({
-      where: { accessKey },
-      include: {
-        user: {
-          select: {
-            discordUsername: true
-          }
-        }
-      }
-    });
+    if (!accessKey) {
+      return NextResponse.json(
+        { error: 'Access key is required' },
+        { status: 400 }
+      );
+    }
+
+    const storage = await getFileStorage();
+    const steamFile = storage?.get(accessKey);
 
     if (!steamFile) {
+      console.log(`❌ File not found for key: ${accessKey}`);
       return NextResponse.json(
         { error: 'File not found or access key invalid' },
         { status: 404 }
@@ -28,11 +44,9 @@ export async function GET(
     }
 
     // Check if file has expired
-    if (new Date() > steamFile.expiresAt) {
-      // Clean up expired file
-      await db.steamFile.delete({
-        where: { id: steamFile.id }
-      });
+    if (new Date() > new Date(steamFile.expiresAt)) {
+      console.log(`⏰ File expired for key: ${accessKey}`);
+      storage?.delete(accessKey);
       
       return NextResponse.json(
         { error: 'Download link has expired' },
@@ -40,135 +54,29 @@ export async function GET(
       );
     }
 
-    // Mark as downloaded
-    await db.steamFile.update({
-      where: { id: steamFile.id },
-      data: { isDownloaded: true }
-    });
-
-    // Return file data
-    return NextResponse.json({
+    // Return the file data
+    const responseData = {
       success: true,
+      storage: 'memory',
       file: {
-        id: steamFile.id,
         appId: steamFile.steamAppId,
         appName: steamFile.steamAppName,
         manifestContent: steamFile.manifestContent,
         luaContent: steamFile.luaContent,
-        manifestSize: steamFile.manifestSize,
-        luaSize: steamFile.luaSize,
+        discordUsername: steamFile.discordUsername,
         createdAt: steamFile.createdAt,
-        expiresAt: steamFile.expiresAt,
-        discordUsername: steamFile.user.discordUsername
+        expiresAt: steamFile.expiresAt
       }
-    });
+    };
+
+    console.log(`✅ Successfully serving file: ${responseData.file.appName}`);
+    
+    return NextResponse.json(responseData);
 
   } catch (error) {
-    console.error('Error downloading file:', error);
+    console.error('❌ Error downloading files:', error);
     return NextResponse.json(
-      { error: 'Failed to download file' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { accessKey: string } }
-) {
-  try {
-    const { accessKey } = params;
-    const { format } = await request.json();
-
-    // Find the file record
-    const steamFile = await db.steamFile.findUnique({
-      where: { accessKey }
-    });
-
-    if (!steamFile) {
-      return NextResponse.json(
-        { error: 'File not found or access key invalid' },
-        { status: 404 }
-      );
-    }
-
-    // Check if file has expired
-    if (new Date() > steamFile.expiresAt) {
-      return NextResponse.json(
-        { error: 'Download link has expired' },
-        { status: 410 }
-      );
-    }
-
-    let content: string;
-    let filename: string;
-    let contentType: string;
-
-    if (format === 'manifest') {
-      content = steamFile.manifestContent;
-      filename = `${steamFile.steamAppName.replace(/[^a-z0-9]/gi, '_')}_manifest.json`;
-      contentType = 'application/json';
-    } else if (format === 'lua') {
-      content = steamFile.luaContent;
-      filename = `${steamFile.steamAppName.replace(/[^a-z0-9]/gi, '_')}_script.lua`;
-      contentType = 'text/x-lua';
-    } else if (format === 'steamtools-manifest') {
-      // Create Steamtools-compatible manifest
-      const manifest = JSON.parse(steamFile.manifestContent);
-      const steamtoolsManifest = {
-        format: "steamtools",
-        version: "1.0",
-        appid: steamFile.steamAppId,
-        name: steamFile.steamAppName,
-        manifest: {
-          ...manifest,
-          steamtools_metadata: {
-            generated_by: "Steam Manifest Generator Bot",
-            generated_at: new Date().toISOString(),
-            compatible_with: "Steamtools v1.0+",
-            export_format: "json"
-          }
-        }
-      };
-      content = JSON.stringify(steamtoolsManifest, null, 2);
-      filename = `${steamFile.steamAppName.replace(/[^a-z0-9]/gi, '_')}_steamtools.json`;
-      contentType = 'application/json';
-    } else if (format === 'steamtools-lua') {
-      // Create Steamtools-compatible Lua script
-      const steamtoolsHeader = `--[[
-  Steamtools Compatible Lua Script
-  Generated for: ${steamFile.steamAppName} (${steamFile.steamAppId})
-  Generated by: Steam Manifest Generator Bot
-  Generated at: ${new Date().toISOString()}
-  
-  This script is compatible with Steamtools and can be imported
-  directly into your Steamtools project.
-]]\n\n`;
-      content = steamtoolsHeader + steamFile.luaContent;
-      filename = `${steamFile.steamAppName.replace(/[^a-z0-9]/gi, '_')}_steamtools.lua`;
-      contentType = 'text/x-lua';
-    } else {
-      return NextResponse.json(
-        { error: 'Invalid format specified' },
-        { status: 400 }
-      );
-    }
-
-    // Return file as downloadable
-    return new NextResponse(content, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    });
-
-  } catch (error) {
-    console.error('Error downloading file:', error);
-    return NextResponse.json(
-      { error: 'Failed to download file' },
+      { error: 'Failed to download files: ' + error.message },
       { status: 500 }
     );
   }

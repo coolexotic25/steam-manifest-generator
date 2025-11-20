@@ -88,7 +88,7 @@ module.exports = {
       try {
         console.log(`Attempting to generate files via website API for ${appData.name}`);
         
-        const websiteResponse = await axios.post(`${WEBSITE_URL}/api/generate`, {
+        const websiteResponse = await axios.post(`${WEBSITE_URL}/api/simple-generate`, {
           appId: appId,
           discordUserId: interaction.user.id,
           discordUsername: interaction.user.username
