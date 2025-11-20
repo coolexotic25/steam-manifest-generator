@@ -5,7 +5,7 @@ const { generateLuaScript, getLuaScriptSummary } = require('../utils/luaGenerato
 const axios = require('axios');
 
 // Website URL - change this to your deployed website URL
-const WEBSITE_URL = process.env.WEBSITE_URL || 'http://localhost:3000';
+const WEBSITE_URL = process.env.WEBSITE_URL || 'https://steam-manifest-generator-7400r641h.vercel.app';
 
 module.exports = {
   data: new SlashCommandBuilder()
