@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSteamAppDetails, validateAppId } from '../../../../utils/steamAPI';
 import { generateSteamManifest, formatManifest } from '../../../../utils/manifestGenerator';
 import { generateLuaScript } from '../../../../utils/luaGenerator';
+import { createGeneratedFile } from '@/lib/supabase';
 import { randomBytes } from 'crypto';
 
-// Simple in-memory storage for demo purposes
-// In production, you'd use a proper database
+// Fallback in-memory storage for when Supabase is not available
 const fileStorage = new Map();
 
 export async function POST(request: NextRequest) {
@@ -42,10 +42,10 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
-    // Store the generated files in memory (for demo)
+    // Prepare file data
     const fileData = {
-      id: Date.now().toString(),
-      userId: discordUserId,
+      accessKey,
+      discordUserId,
       discordUsername: discordUsername || null,
       steamAppId: appId,
       steamAppName: appData.name,
@@ -53,18 +53,31 @@ export async function POST(request: NextRequest) {
       luaContent: luaScript,
       manifestSize: manifestJson.length,
       luaSize: luaScript.length,
-      accessKey: accessKey,
-      expiresAt: expiresAt,
-      createdAt: new Date()
+      expiresAt: expiresAt
     };
 
-    fileStorage.set(accessKey, fileData);
+    // Try to store in Supabase first, fallback to memory storage
+    let storedSuccessfully = false;
+    
+    try {
+      const supabaseResult = await createGeneratedFile(fileData);
+      if (supabaseResult) {
+        storedSuccessfully = true;
+        console.log(`Files stored in Supabase for App ID ${appId} (${appData.name}) - Access Key: ${accessKey}`);
+      }
+    } catch (supabaseError) {
+      console.log('Supabase storage failed, using fallback:', supabaseError.message);
+    }
+
+    // Fallback to memory storage if Supabase fails
+    if (!storedSuccessfully) {
+      fileStorage.set(accessKey, { ...fileData, id: Date.now().toString() });
+      console.log(`Files stored in memory for App ID ${appId} (${appData.name}) - Access Key: ${accessKey}`);
+    }
 
     // Create Steamtools-compatible files
     const steamtoolsManifest = createSteamtoolsManifest(manifest, appData);
     const steamtoolsLua = createSteamtoolsLua(luaScript, appData);
-
-    console.log(`Generated files for App ID ${appId} (${appData.name}) - Access Key: ${accessKey}`);
 
     return NextResponse.json({
       success: true,
@@ -72,6 +85,7 @@ export async function POST(request: NextRequest) {
       downloadUrl: `/download/${accessKey}`,
       appId: appId,
       appName: appData.name,
+      storage: storedSuccessfully ? 'supabase' : 'memory',
       steamtoolsFiles: {
         manifest: steamtoolsManifest,
         lua: steamtoolsLua
@@ -87,7 +101,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Export the storage for use in other routes
+// Export the storage for use in other routes (fallback)
 export { fileStorage };
 
 function createSteamtoolsManifest(manifest: any, appData: any) {
