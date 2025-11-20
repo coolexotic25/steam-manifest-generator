@@ -189,7 +189,7 @@ module.exports = {
         const luaBuffer = Buffer.from(luaScript, 'utf8');
 
         await interaction.editReply({
-          embeds: [localEmbed],
+          embeds: [mainEmbed],
           files: [
             {
               attachment: manifestBuffer,
