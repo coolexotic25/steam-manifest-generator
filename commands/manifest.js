@@ -3,9 +3,44 @@ const { getSteamAppDetails, validateAppId } = require('../utils/steamAPI');
 const { generateSteamManifest, formatManifest, getManifestSummary } = require('../utils/manifestGenerator');
 const { generateLuaScript, getLuaScriptSummary } = require('../utils/luaGenerator');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
-// Website URL - change this to your deployed website URL
+// Use a temporary file hosting service or create a simple solution
 const WEBSITE_URL = process.env.WEBSITE_URL || 'https://steam-manifest-generator-7400r641h.vercel.app';
+
+// Fallback: Create files locally and return them as Discord attachments
+async function generateFilesLocally(appData, interaction) {
+  try {
+    // Generate files
+    const manifest = generateSteamManifest(appData);
+    const manifestJson = formatManifest(manifest);
+    const luaScript = generateLuaScript(appData);
+
+    // Create temporary directory if it doesn't exist
+    const tempDir = path.join(__dirname, '../temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Write files to temporary directory
+    const manifestPath = path.join(tempDir, `${appData.appId}_manifest.json`);
+    const luaPath = path.join(tempDir, `${appData.appId}_script.lua`);
+    
+    fs.writeFileSync(manifestPath, manifestJson);
+    fs.writeFileSync(luaPath, luaScript);
+
+    return {
+      manifestPath,
+      luaPath,
+      manifestJson,
+      luaScript
+    };
+  } catch (error) {
+    console.error('Error generating files locally:', error);
+    throw error;
+  }
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -47,62 +82,107 @@ module.exports = {
       console.log(`Fetching Steam app details for App ID: ${appId}`);
       const appData = await getSteamAppDetails(appId);
 
-      // Generate files via website API
-      console.log(`Generating files via website API for ${appData.name}`);
-      
-      const websiteResponse = await axios.post(`${WEBSITE_URL}/api/generate`, {
-        appId: appId,
-        discordUserId: interaction.user.id,
-        discordUsername: interaction.user.username
-      });
+      let responseSent = false;
 
-      if (!websiteResponse.data.success) {
-        throw new Error(websiteResponse.data.error || 'Website API failed');
-      }
-
-      const { accessKey, downloadUrl, steamtoolsFiles } = websiteResponse.data;
-
-      // Create the main embed with download link
-      const mainEmbed = new EmbedBuilder()
-        .setColor('#00FF00')
-        .setTitle(`🎮 Files Generated for ${appData.name}`)
-        .setURL(`https://store.steampowered.com/app/${appId}`)
-        .setDescription(`Your Steam manifest and Lua script have been generated!`)
-        .setThumbnail(appData.headerImage || null)
-        .addFields(
-          { name: '📋 App Information', value: `**App ID:** ${appId}\n**Developer:** ${appData.developer}\n**Publisher:** ${appData.publisher}\n**Release Date:** ${appData.releaseDate}\n**Genres:** ${appData.genres.join(', ') || 'N/A'}`, inline: false },
-          { name: '🔗 Download Link', value: `Click the button below to download your files\n**Access expires in 24 hours**`, inline: false },
-          { name: '🛠️ Steamtools Compatible', value: `✅ Steam manifest optimized for Steamtools\n✅ Lua script with Steamtools headers\n✅ Direct import ready`, inline: false }
-        )
-        .setTimestamp()
-        .setFooter({ 
-          text: 'Steam Manifest Generator Bot • Files hosted securely',
-          iconURL: interaction.client.user.displayAvatarURL()
+      // Try the website API first
+      try {
+        console.log(`Attempting to generate files via website API for ${appData.name}`);
+        
+        const websiteResponse = await axios.post(`${WEBSITE_URL}/api/generate`, {
+          appId: appId,
+          discordUserId: interaction.user.id,
+          discordUsername: interaction.user.username
+        }, {
+          timeout: 10000, // 10 second timeout
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Steam-Manifest-Generator-Bot/1.0'
+          }
         });
 
-      // Create action button for download
-      const downloadButton = {
-        type: 1,
-        components: [{
-          type: 2,
-          style: 5, // Link button
-          label: '📥 Download Files',
-          url: `${WEBSITE_URL}${downloadUrl}`
-        }, {
-          type: 2,
-          style: 5, // Link button
-          label: '🛒 View on Steam',
-          url: `https://store.steampowered.com/app/${appId}`
-        }]
-      };
+        if (websiteResponse.data.success) {
+          const { accessKey, downloadUrl, steamtoolsFiles } = websiteResponse.data;
 
-      // Send the response with embed and download button
-      await interaction.editReply({
-        embeds: [mainEmbed],
-        components: [downloadButton]
-      });
+          // Create the main embed with download link
+          const mainEmbed = new EmbedBuilder()
+            .setColor('#00FF00')
+            .setTitle(`🎮 Files Generated for ${appData.name}`)
+            .setURL(`https://store.steampowered.com/app/${appId}`)
+            .setDescription(`Your Steam manifest and Lua script have been generated!`)
+            .setThumbnail(appData.headerImage || null)
+            .addFields(
+              { name: '📋 App Information', value: `**App ID:** ${appId}\n**Developer:** ${appData.developer}\n**Publisher:** ${appData.publisher}\n**Release Date:** ${appData.releaseDate}\n**Genres:** ${appData.genres.join(', ') || 'N/A'}`, inline: false },
+              { name: '🔗 Download Link', value: `Click the button below to download your files\n**Access expires in 24 hours**`, inline: false },
+              { name: '🛠️ Steamtools Compatible', value: `✅ Steam manifest optimized for Steamtools\n✅ Lua script with Steamtools headers\n✅ Direct import ready`, inline: false }
+            )
+            .setTimestamp()
+            .setFooter({ 
+              text: 'Steam Manifest Generator Bot • Files hosted securely',
+              iconURL: interaction.client.user.displayAvatarURL()
+            });
 
-      console.log(`Successfully generated files for App ID ${appId} (${appData.name}) - Access Key: ${accessKey}`);
+          // Create action button for download
+          const downloadButton = {
+            type: 1,
+            components: [{
+              type: 2,
+              style: 5, // Link button
+              label: '📥 Download Files',
+              url: `${WEBSITE_URL}${downloadUrl}`
+            }, {
+              type: 2,
+              style: 5, // Link button
+              label: '🛒 View on Steam',
+              url: `https://store.steampowered.com/app/${appId}`
+            }]
+          };
+
+          // Send the response with embed and download button
+          await interaction.editReply({
+            embeds: [mainEmbed],
+            components: [downloadButton]
+          });
+
+          console.log(`Successfully generated files via website for App ID ${appId} (${appData.name}) - Access Key: ${accessKey}`);
+          responseSent = true;
+        }
+      } catch (websiteError) {
+        console.log(`Website API failed, falling back to local generation: ${websiteError.message}`);
+      }
+
+      // Fallback: Generate files locally and send as Discord attachments
+      if (!responseSent) {
+        console.log(`Generating files locally for ${appData.name}`);
+        
+        const { manifestJson, luaScript } = await generateFilesLocally(appData, interaction);
+
+        // Create embed with file content preview
+        const localEmbed = new EmbedBuilder()
+          .setColor('#00FF00')
+          .setTitle(`🎮 Files Generated for ${appData.name}`)
+          .setURL(`https://store.steampowered.com/app/${appId}`)
+          .setDescription(`Your Steam manifest and Lua script have been generated locally!`)
+          .setThumbnail(appData.headerImage || null)
+          .addFields(
+            { name: '📋 App Information', value: `**App ID:** ${appId}\n**Developer:** ${appData.developer}\n**Publisher:** ${appData.publisher}\n**Release Date:** ${appData.releaseDate}\n**Genres:** ${appData.genres.join(', ') || 'N/A'}`, inline: false },
+            { name: '📄 Manifest Preview', value: `\`\`\`json\n${JSON.stringify({ appid: appId, name: appData.name, state: "eStateAvailable" }, null, 2).substring(0, 200)}...\n\`\`\``, inline: false },
+            { name: '🔧 Lua Preview', value: `\`\`\`lua\n-- ${appData.name} (${appId})\n-- Generated by Steam Manifest Generator Bot\n\nlocal GameConfig = {\n    name = "${appData.name}",\n    appId = ${appId},\n...\n\`\`\``, inline: false },
+            { name: '📝 Files', value: `✅ Steam manifest generated\n✅ Lua script generated\n✅ Steamtools compatible\n✅ Full files in response below`, inline: false }
+          )
+          .setTimestamp()
+          .setFooter({ 
+            text: 'Steam Manifest Generator Bot • Local generation',
+            iconURL: interaction.client.user.displayAvatarURL()
+          });
+
+        // Send the embed with file content as code blocks
+        await interaction.editReply({
+          embeds: [localEmbed],
+          content: `📁 **Generated Files for ${appData.name}**\n\n**📋 Steam Manifest:**\n\`\`\`json\n${manifestJson.substring(0, 1500)}${manifestJson.length > 1500 ? '...' : ''}\n\`\`\`\n\n**🔧 Lua Script:**\n\`\`\`lua\n${luaScript.substring(0, 1500)}${luaScript.length > 1500 ? '...' : ''}\n\`\`\`\n\n${manifestJson.length > 1500 || luaScript.length > 1500 ? '⚠️ Files were truncated due to Discord limits. Full files are available upon request.' : ''}`
+        });
+
+        console.log(`Successfully generated files locally for App ID ${appId} (${appData.name})`);
+      }
 
     } catch (error) {
       console.error(`Error generating files for App ID ${appId}:`, error);
@@ -113,7 +193,7 @@ module.exports = {
         .setDescription(`Failed to generate files for App ID **${appId}**`)
         .addFields(
           { name: 'Error Details', value: error.message || 'Unknown error occurred' },
-          { name: 'Possible Causes', value: '• Website API is temporarily unavailable\n• App ID does not exist\n• Network connectivity issues' },
+          { name: 'Possible Causes', value: '• Steam API is temporarily unavailable\n• App ID does not exist\n• Network connectivity issues' },
           { name: 'Troubleshooting', value: 'Try again in a few moments, or verify the App ID exists on Steam.' }
         )
         .setTimestamp()
