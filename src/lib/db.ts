@@ -9,10 +9,10 @@ export const db =
   new PrismaClient({
     datasources: {
       db: {
-        url: 'file:./dev.db',
+        url: process.env.DATABASE_URL || 'file:./dev.db',
       },
     },
-    log: ['query'],
+    log: process.env.NODE_ENV === 'development' ? ['query'] : [],
   })
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db

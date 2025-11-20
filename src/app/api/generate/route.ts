@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { getSteamAppDetails, validateAppId } from '../../../utils/steamAPI';
-import { generateSteamManifest, formatManifest } from '../../../utils/manifestGenerator';
-import { generateLuaScript } from '../../../utils/luaGenerator';
+import { getSteamAppDetails, validateAppId } from '../../../../utils/steamAPI';
+import { generateSteamManifest, formatManifest } from '../../../../utils/manifestGenerator';
+import { generateLuaScript } from '../../../../utils/luaGenerator';
 import { randomBytes } from 'crypto';
+
+// Simple in-memory storage for demo purposes
+// In production, you'd use a proper database
+const fileStorage = new Map();
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,39 +42,29 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
-    // Find or create user
-    let user = await db.user.findUnique({
-      where: { discordId: discordUserId }
-    });
+    // Store the generated files in memory (for demo)
+    const fileData = {
+      id: Date.now().toString(),
+      userId: discordUserId,
+      discordUsername: discordUsername || null,
+      steamAppId: appId,
+      steamAppName: appData.name,
+      manifestContent: manifestJson,
+      luaContent: luaScript,
+      manifestSize: manifestJson.length,
+      luaSize: luaScript.length,
+      accessKey: accessKey,
+      expiresAt: expiresAt,
+      createdAt: new Date()
+    };
 
-    if (!user) {
-      user = await db.user.create({
-        data: {
-          discordId: discordUserId,
-          discordUsername: discordUsername || null
-        }
-      });
-    }
-
-    // Store the generated files
-    const steamFile = await db.steamFile.create({
-      data: {
-        userId: user.id,
-        discordUserId: discordUserId,
-        steamAppId: appId,
-        steamAppName: appData.name,
-        manifestContent: manifestJson,
-        luaContent: luaScript,
-        manifestSize: manifestJson.length,
-        luaSize: luaScript.length,
-        accessKey: accessKey,
-        expiresAt: expiresAt
-      }
-    });
+    fileStorage.set(accessKey, fileData);
 
     // Create Steamtools-compatible files
     const steamtoolsManifest = createSteamtoolsManifest(manifest, appData);
     const steamtoolsLua = createSteamtoolsLua(luaScript, appData);
+
+    console.log(`Generated files for App ID ${appId} (${appData.name}) - Access Key: ${accessKey}`);
 
     return NextResponse.json({
       success: true,
@@ -88,11 +81,14 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error generating files:', error);
     return NextResponse.json(
-      { error: 'Failed to generate files' },
+      { error: 'Failed to generate files: ' + error.message },
       { status: 500 }
     );
   }
 }
+
+// Export the storage for use in other routes
+export { fileStorage };
 
 function createSteamtoolsManifest(manifest: any, appData: any) {
   // Create a Steamtools-compatible manifest
