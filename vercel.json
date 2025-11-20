@@ -4,7 +4,8 @@
   "installCommand": "npm install",
   "framework": "nextjs",
   "protection": {
-    "enabled": false
+    "enabled": false,
+    "bypassForToken": "YOUR_BYPASS_TOKEN_HERE"
   },
   "env": {
     "DATABASE_URL": "@database_url",
