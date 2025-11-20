@@ -1,12 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeneratedFile } from '@/lib/supabase';
-import { fileStorage } from '../../api/generate/route';
+
+// Import fileStorage from generate route
+let fileStorage: Map<string, any> | null = null;
+
+// Dynamic import to avoid crashes
+async function getFileStorage() {
+  if (!fileStorage) {
+    try {
+      const module = await import('../../api/generate/route');
+      fileStorage = module.fileStorage;
+    } catch (error) {
+      console.log('⚠️ Could not import file storage:', error.message);
+      fileStorage = new Map();
+    }
+  }
+  return fileStorage;
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { accessKey: string } }
 ) {
   try {
+    console.log(`🔍 Download request for key: ${params.accessKey}`);
+    
     const accessKey = params.accessKey;
 
     if (!accessKey) {
@@ -19,23 +36,32 @@ export async function GET(
     let steamFile = null;
     let storageSource = 'unknown';
 
-    // Try Supabase first
-    try {
-      steamFile = await getGeneratedFile(accessKey);
+    // Try memory storage first (most reliable)
+    const storage = await getFileStorage();
+    if (storage) {
+      steamFile = storage.get(accessKey);
       if (steamFile) {
-        storageSource = 'supabase';
+        storageSource = 'memory';
+        console.log(`📁 Found file in memory storage: ${steamFile.steamAppName}`);
       }
-    } catch (supabaseError) {
-      console.log('Supabase fetch failed, trying fallback:', supabaseError.message);
     }
 
-    // Fallback to memory storage
+    // Try Supabase if not found in memory
     if (!steamFile) {
-      steamFile = fileStorage.get(accessKey);
-      storageSource = 'memory';
+      try {
+        const { getGeneratedFile } = await import('@/lib/supabase');
+        steamFile = await getGeneratedFile(accessKey);
+        if (steamFile) {
+          storageSource = 'supabase';
+          console.log(`🗄️ Found file in Supabase: ${steamFile.steam_app_name}`);
+        }
+      } catch (supabaseError) {
+        console.log('⚠️ Supabase not available:', supabaseError.message);
+      }
     }
 
     if (!steamFile) {
+      console.log(`❌ File not found for key: ${accessKey}`);
       return NextResponse.json(
         { error: 'File not found or access key invalid' },
         { status: 404 }
@@ -43,10 +69,13 @@ export async function GET(
     }
 
     // Check if file has expired
-    if (new Date() > new Date(steamFile.expires_at)) {
+    const expiresAt = new Date(steamFile.expires_at || steamFile.expiresAt);
+    if (new Date() > expiresAt) {
+      console.log(`⏰ File expired for key: ${accessKey}`);
+      
       // Clean up expired file
-      if (storageSource === 'memory') {
-        fileStorage.delete(accessKey);
+      if (storageSource === 'memory' && storage) {
+        storage.delete(accessKey);
       }
       
       return NextResponse.json(
@@ -56,24 +85,28 @@ export async function GET(
     }
 
     // Return the file data
-    return NextResponse.json({
+    const responseData = {
       success: true,
       storage: storageSource,
       file: {
-        appId: steamFile.steam_app_id,
-        appName: steamFile.steam_app_name,
-        manifestContent: steamFile.manifest_content,
-        luaContent: steamFile.lua_content,
-        discordUsername: steamFile.discord_username,
-        createdAt: steamFile.created_at,
-        expiresAt: steamFile.expires_at
+        appId: steamFile.steamAppId || steamFile.steam_app_id,
+        appName: steamFile.steamAppName || steamFile.steam_app_name,
+        manifestContent: steamFile.manifestContent || steamFile.manifest_content,
+        luaContent: steamFile.luaContent || steamFile.lua_content,
+        discordUsername: steamFile.discordUsername || steamFile.discord_username,
+        createdAt: steamFile.createdAt || steamFile.created_at,
+        expiresAt: steamFile.expiresAt || steamFile.expires_at
       }
-    });
+    };
+
+    console.log(`✅ Successfully serving file from ${storageSource}: ${responseData.file.appName}`);
+    
+    return NextResponse.json(responseData);
 
   } catch (error) {
-    console.error('Error downloading files:', error);
+    console.error('❌ Error downloading files:', error);
     return NextResponse.json(
-      { error: 'Failed to download files' },
+      { error: 'Failed to download files: ' + error.message },
       { status: 500 }
     );
   }
